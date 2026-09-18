@@ -123,6 +123,9 @@
 
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .form-grid .full{grid-column:1/-1}
+  /* 房产表单：始终两列（窄窗口也不塌成单列），<520px 才回退单列 */
+  .modal .form-grid.grid2{grid-template-columns:1fr 1fr}
+  @media(max-width:520px){.modal .form-grid.grid2{grid-template-columns:1fr}}
   .f-item{display:flex;flex-direction:column;gap:6px}
   .f-item label{font-size:12.5px;color:var(--ink-2);font-weight:600}
   .f-item label em{color:var(--expense);font-style:normal;margin-left:2px}
@@ -312,6 +315,9 @@ const METER_DEF_RATE={water:4.0,electric:0.65,gas:3.5};
 /* ---------------- 状态 ---------------- */
 let db=load();
 let currentView='dashboard';
+/* v1.4：列表折叠状态（记忆到 localStorage） */
+let uiFold={};try{uiFold=JSON.parse(localStorage.getItem('anju_ledger_fold')||'{}')}catch(e){}
+function toggleFold(k){uiFold[k]=!uiFold[k];localStorage.setItem('anju_ledger_fold',JSON.stringify(uiFold));render()}
 let recordFilter={type:'',cat:'',propertyId:'',month:'',kw:''};
 let reportYear=new Date().getFullYear();
 let reportProp='';
@@ -430,38 +436,47 @@ function showTxModal(preset={}){
 /* ================================================================
    房产表单
    ================================================================ */
-function showPropModal(id){
-  const p=id?db.properties.find(x=>x.id===id):{name:'',addr:'',type:PROP_TYPES[0],area:'',buyPrice:'',buyDate:'',status:'self',note:''};
-  openModal(`<div class="modal">
+function showPropModal(id,presetNature){
+  const p=id?db.properties.find(x=>x.id===id):{name:'',addr:'',type:PROP_TYPES[0],area:'',buyPrice:'',buyDate:'',status:presetNature==='rent'?'tenant':'self',note:''};
+  const isRent=id?p.nature==='rent':presetNature==='rent';
+  openModal(`<div class="modal wide">
     <div class="m-head"><h3>${id?'编辑房产':'添加房产'}</h3><button class="m-x" onclick="closeModal()">×</button></div>
-    <div class="m-body"><div class="form-grid">
-      <div class="f-item full"><label>房产名称<em>*</em></label><input class="input" id="pName" placeholder="例如：城东花园3栋201" value="${esc(p.name)}"></div>
-      <div class="f-item full"><label>详细地址</label><input class="input" id="pAddr" value="${esc(p.addr||'')}"></div>
+    <div class="m-body"><div class="form-grid grid2">
+      <div class="f-item"><label>房产名称<em>*</em></label><input class="input" id="pName" placeholder="例如：城东花园3栋201" value="${esc(p.name)}"></div>
       <div class="f-item"><label>类型</label><select class="select" id="pType">${PROP_TYPES.map(t=>`<option ${t===p.type?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="f-item"><label>详细地址</label><input class="input" id="pAddr" value="${esc(p.addr||'')}"></div>
       <div class="f-item"><label>状态</label><select class="select" id="pStatus">${Object.entries(PROP_STATUS).map(([k,v])=>`<option value="${k}" ${k===p.status?'selected':''}>${v.name}</option>`).join('')}</select></div>
       <div class="f-item"><label>房产性质</label><div class="seg" style="max-width:240px">
-        <button type="button" id="pNatOwn" class="${(p.nature||'own')!=='rent'?'on-in':''}" onclick="setPNature('own')">🏠 自有</button>
-        <button type="button" id="pNatRent" class="${p.nature==='rent'?'on-out':''}" onclick="setPNature('rent')">🔑 租入</button></div></div>
+        <button type="button" id="pNatOwn" class="${isRent?'':'on-in'}" onclick="setPNature('own')">🏠 自有</button>
+        <button type="button" id="pNatRent" class="${isRent?'on-out':''}" onclick="setPNature('rent')">🔑 租入</button></div></div>
       <div class="f-item"><label>建筑面积(㎡)</label><input class="input" id="pArea" type="number" min="0" step="0.01" value="${p.area??''}"></div>
-      <div class="f-item"><label>购入价格(元)</label><input class="input" id="pPrice" type="number" min="0" step="100" value="${p.buyPrice??''}"></div>
-      <div class="f-item"><label>购入日期</label><input class="input" id="pDate" type="date" value="${p.buyDate||''}"></div>
-      <div class="f-item full" id="pRentBox" style="grid-column:1/-1;display:${p.nature==='rent'?'block':'none'}">
-        <div class="form-grid" style="margin-top:2px">
-          <div class="f-item full" style="margin-top:4px"><label style="color:var(--muted);font-size:12px">—— 租入信息（填写后每月按缴租日自动记「付房东租金」）——</label></div>
-          <div class="f-item"><label>月租金(元)</label><input class="input" id="pRent" type="number" min="0" step="10" value="${p.rent??''}"></div>
-          <div class="f-item"><label>押金(元)</label><input class="input" id="pDep" type="number" min="0" step="100" value="${p.deposit??''}"></div>
-          <div class="f-item"><label>合同开始</label><input class="input" id="pCStart" type="date" value="${p.contractStart||''}"></div>
-          <div class="f-item"><label>合同到期</label><input class="input" id="pCEnd" type="date" value="${p.contractEnd||''}"></div>
-          <div class="f-item"><label>每月缴租日(1-28)</label><input class="input" id="pRentDay" type="number" min="1" max="28" step="1" value="${p.rentDay||1}"></div>
+      <div class="f-item" id="pPriceItem" style="display:${isRent?'none':'flex'}"><label>购入价格(元)</label><input class="input" id="pPrice" type="number" min="0" step="100" value="${p.buyPrice??''}"></div>
+      <div class="f-item" id="pDateItem" style="display:${isRent?'none':'flex'}"><label>购入日期</label><input class="input" id="pDate" type="date" value="${p.buyDate||''}"></div>
+      <div class="f-item full" id="pRentBox" style="grid-column:1/-1;display:${isRent?'block':'none'};margin:4px 0 2px">
+        <div style="background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">🔑 租入信息 · 保存后每月按缴租日自动记一笔「付房东租金」</div>
+          <div class="form-grid">
+            <div class="f-item"><label>月租金(元)<em>*</em></label><input class="input" id="pRent" type="number" min="0" step="10" value="${p.rent??''}"></div>
+            <div class="f-item"><label>押金(元)</label><input class="input" id="pDep" type="number" min="0" step="100" value="${p.deposit??''}"></div>
+            <div class="f-item"><label>合同开始</label><input class="input" id="pCStart" type="date" value="${p.contractStart||''}"></div>
+            <div class="f-item"><label>合同到期</label><input class="input" id="pCEnd" type="date" value="${p.contractEnd||''}"></div>
+            <div class="f-item"><label>每月缴租日(1-28)</label><input class="input" id="pRentDay" type="number" min="1" max="28" step="1" value="${p.rentDay||1}"></div>
+            <div style="align-self:end;font-size:11.5px;color:var(--faint);line-height:1.7;padding-bottom:12px">到缴租日自动生成支出账目<br>备注标注「自动记账」</div>
+          </div>
         </div></div>
-      <div class="f-item full" style="margin-top:4px"><label style="color:var(--muted);font-size:12px">—— 房贷信息（选填，填写后可查看还款计划）——</label></div>
-      <div class="f-item"><label>贷款本金(元)</label><input class="input" id="pLoan" type="number" min="0" step="1000" value="${p.loanAmount??''}"></div>
-      <div class="f-item"><label>年利率(%)</label><input class="input" id="pRate" type="number" min="0" step="0.01" value="${p.loanRate??''}"></div>
-      <div class="f-item"><label>期限(年)</label><input class="input" id="pYears" type="number" min="0" step="1" value="${p.loanYears??''}"></div>
-      <div class="f-item"><label>还款方式</label><select class="select" id="pMode">
-        <option value="equal" ${p.loanMode!=='principal'?'selected':''}>等额本息</option>
-        <option value="principal" ${p.loanMode==='principal'?'selected':''}>等额本金</option></select></div>
-      <div class="f-item full"><label>首次还款日</label><input class="input" id="pLoanStart" type="date" value="${p.loanStart||''}"></div>
+      <div class="f-item full" id="pLoanBox" style="grid-column:1/-1;display:${isRent?'none':'block'};margin:4px 0 2px">
+        <div style="border-top:1px dashed var(--line);padding-top:10px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">🏦 房贷信息（选填，填写后可查看还款计划）</div>
+          <div class="form-grid">
+            <div class="f-item"><label>贷款本金(元)</label><input class="input" id="pLoan" type="number" min="0" step="1000" value="${p.loanAmount??''}"></div>
+            <div class="f-item"><label>年利率(%)</label><input class="input" id="pRate" type="number" min="0" step="0.01" value="${p.loanRate??''}"></div>
+            <div class="f-item"><label>期限(年)</label><input class="input" id="pYears" type="number" min="0" step="1" value="${p.loanYears??''}"></div>
+            <div class="f-item"><label>还款方式</label><select class="select" id="pMode">
+              <option value="equal" ${p.loanMode!=='principal'?'selected':''}>等额本息</option>
+              <option value="principal" ${p.loanMode==='principal'?'selected':''}>等额本金</option></select></div>
+            <div class="f-item full"><label>首次还款日</label><input class="input" id="pLoanStart" type="date" value="${p.loanStart||''}"></div>
+          </div>
+        </div></div>
       <div class="f-item full"><label>备注</label><textarea class="input" id="pNote">${esc(p.note||'')}</textarea></div>
     </div></div>
     <div class="m-foot">
@@ -470,11 +485,14 @@ function showPropModal(id){
       <button class="btn btn-ghost" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" id="pSave">${id?'保存':'添加'}</button>
     </div></div>`);
-  let pNature=p.nature||'own';
+  let pNature=isRent?'rent':'own';
   window.setPNature=n=>{pNature=n;
     document.getElementById('pNatOwn').className=n==='own'?'on-in':'';
     document.getElementById('pNatRent').className=n==='rent'?'on-out':'';
-    document.getElementById('pRentBox').style.display=n==='rent'?'block':'none'};
+    document.getElementById('pRentBox').style.display=n==='rent'?'block':'none';
+    document.getElementById('pLoanBox').style.display=n==='rent'?'none':'block';
+    document.getElementById('pPriceItem').style.display=n==='rent'?'none':'flex';
+    document.getElementById('pDateItem').style.display=n==='rent'?'none':'flex'};
   if(id)document.getElementById('pDel').onclick=async()=>{
     const cnt=db.transactions.filter(t=>t.propertyId===id).length;
     const tc=db.tenants.filter(t=>t.propertyId===id).length;
@@ -1111,62 +1129,73 @@ function propNameOf(id){return db.properties.find(p=>p.id===id)?.name||'（已�
    ================================================================ */
 function renderProperties(){
   const curYear=new Date().getFullYear();
+  const owned=db.properties.filter(p=>p.nature!=='rent');
+  const rented=db.properties.filter(p=>p.nature==='rent');
+  const propCard=p=>{
+    const st=PROP_STATUS[p.status]||PROP_STATUS.idle;
+    const ys=monthStats(db.transactions.filter(t=>t.propertyId===p.id&&t.date.startsWith(curYear)));
+    const tenant=db.tenants.find(t=>t.propertyId===p.id&&(!t.end||t.end>=today()));
+    return `<div class="card prop-card">
+      <div class="prop-top">
+        <div><div class="prop-name">🏠 ${esc(p.name)} <span class="tag ${st.cls}">${st.name}</span></div>
+          ${p.addr?`<div class="prop-addr">📍 ${esc(p.addr)}</div>`:''}</div>
+      </div>
+      <div class="prop-meta">
+        <span>类型：<b>${p.type||'—'}</b></span>
+        ${p.area?`<span>面积：<b>${p.area}㎡</b></span>`:''}
+        ${p.buyPrice?`<span>购入：<b>${money(p.buyPrice)}</b></span>`:''}
+        ${(()=>{const c=loanCalc(p);return c?`<button class="btn-text" style="padding:0;color:var(--ink-2)" data-action="loanPlan" data-id="${p.id}" title="查看房贷还款计划">🏦 月供 <b style="color:var(--primary-dark)">${money(c.pay0)}</b>/月</button>`:''})()}
+      </div>
+      ${p.nature==='rent'?(()=>{let exp='';
+        if(p.contractEnd){const dl=Math.ceil((new Date(p.contractEnd+'T23:59:59')-new Date())/86400000);
+          exp=dl<0?`<span class="tag out">已到期 ${-dl} 天</span>`:
+            dl<=30?`<span class="tag amber">剩余 ${dl} 天</span>`:`<span class="tag teal">剩余 ${dl} 天</span>`;}
+        return `<div class="tenant-row" style="padding:8px 10px;background:var(--soft);border-radius:10px;border:none;margin-bottom:8px">
+          <div style="font-size:12.5px;line-height:1.9;width:100%">
+            <div>🔑 付房东 <b style="color:var(--expense)">${p.rent?money(p.rent):'—'}</b>/月${p.rentDay?` · 每月 ${p.rentDay} 号`:''}${p.deposit?` · 押金 ${money(p.deposit)}`:''}</div>
+            <div style="color:var(--muted)">📅 合同 ${p.contractStart||'?'} ~ ${p.contractEnd||'长期'} ${exp}</div>
+          </div></div>`})():''}
+      ${tenant?`<div class="tenant-row" style="padding:8px 10px;background:var(--primary-light);border-radius:10px;border:none">
+        <div class="avatar" style="width:32px;height:32px;font-size:13px;border-radius:9px">${esc(tenant.name.slice(0,1))}</div>
+        <div class="tenant-info"><div class="n" style="font-size:13px">${esc(tenant.name)} · 月租 ${money(tenant.rent)}</div>
+          <div class="d">${tenant.start||''}${tenant.end?' 至 '+tenant.end:' 起'}</div></div>
+        <button class="btn-text" data-action="editTenant" data-id="${tenant.id}">租约</button>
+      </div>`:`<div style="font-size:12.5px;color:var(--faint);padding:2px 2px">${p.status==='rent'?'（租约已到期或未登记）':'暂无在租租客'}</div>`}
+      <div class="prop-stats">
+        <div><div class="v" style="color:var(--income)">${money(ys.income).replace('¥','¥')}</div><div class="l">${curYear}年收入</div></div>
+        <div><div class="v" style="color:var(--expense)">${money(ys.expense)}</div><div class="l">${curYear}年支出</div></div>
+        <div><div class="v" style="color:${ys.net>=0?'var(--primary-dark)':'var(--expense)'}">${money(ys.net)}</div><div class="l">年净收益</div></div>
+      </div>
+      <div class="prop-actions">
+        <button class="btn btn-ghost btn-sm" style="flex:1" data-action="quickOutFor" data-id="${p.id}">记账</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1" data-action="meter" data-id="${p.id}">抄表</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1" data-action="addTenantFor" data-id="${p.id}">＋租客</button>
+        <button class="btn btn-ghost btn-sm" data-action="editProp" data-id="${p.id}">编辑</button>
+      </div>
+    </div>`};
+  const emptyProps=`<div class="card"><div class="empty"><div class="e-ico">🏗️</div><p>还没有添加房产<br>添加房产后即可按房产分类记账</p>
+      <button class="btn btn-primary" data-action="addProp">＋ 添加第一套房产</button></div></div>
+      <div style="height:20px"></div>`;
   document.getElementById('view').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <h3 style="font-size:15px">🏢 我的房产（${db.properties.length}）</h3>
+      <h3 style="font-size:15px">🏢 我的房产（${owned.length}）</h3>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost btn-sm" data-action="meterHistory">📋 抄表历史</button>
+        <button class="btn btn-ghost btn-sm" data-action="foldProps">${uiFold.props?'展开 ▾':'收起 ▴'}</button>
         <button class="btn btn-primary btn-sm" data-action="addProp">＋ 添加房产</button></div></div>
-    ${db.properties.length?`<div class="grid g-3" style="margin-bottom:26px">
-      ${db.properties.map(p=>{
-        const st=PROP_STATUS[p.status]||PROP_STATUS.idle;
-        const ys=monthStats(db.transactions.filter(t=>t.propertyId===p.id&&t.date.startsWith(curYear)));
-        const tenant=db.tenants.find(t=>t.propertyId===p.id&&(!t.end||t.end>=today()));
-        return `<div class="card prop-card">
-          <div class="prop-top">
-            <div><div class="prop-name">🏠 ${esc(p.name)} <span class="tag ${st.cls}">${st.name}</span></div>
-              ${p.addr?`<div class="prop-addr">📍 ${esc(p.addr)}</div>`:''}</div>
-          </div>
-          <div class="prop-meta">
-            <span>类型：<b>${p.type||'—'}</b></span>
-            ${p.area?`<span>面积：<b>${p.area}㎡</b></span>`:''}
-            ${p.buyPrice?`<span>购入：<b>${money(p.buyPrice)}</b></span>`:''}
-            ${(()=>{const c=loanCalc(p);return c?`<button class="btn-text" style="padding:0;color:var(--ink-2)" data-action="loanPlan" data-id="${p.id}" title="查看房贷还款计划">🏦 月供 <b style="color:var(--primary-dark)">${money(c.pay0)}</b>/月</button>`:''})()}
-          </div>
-          ${p.nature==='rent'?(()=>{let exp='';
-            if(p.contractEnd){const dl=Math.ceil((new Date(p.contractEnd+'T23:59:59')-new Date())/86400000);
-              exp=dl<0?`<span class="tag out">已到期 ${-dl} 天</span>`:
-                dl<=30?`<span class="tag amber">剩余 ${dl} 天</span>`:`<span class="tag teal">剩余 ${dl} 天</span>`;}
-            return `<div class="tenant-row" style="padding:8px 10px;background:var(--soft);border-radius:10px;border:none;margin-bottom:8px">
-              <div style="font-size:12.5px;line-height:1.9;width:100%">
-                <div>🔑 付房东 <b style="color:var(--expense)">${p.rent?money(p.rent):'—'}</b>/月${p.rentDay?` · 每月 ${p.rentDay} 号`:''}${p.deposit?` · 押金 ${money(p.deposit)}`:''}</div>
-                <div style="color:var(--muted)">📅 合同 ${p.contractStart||'?'} ~ ${p.contractEnd||'长期'} ${exp}</div>
-              </div></div>`})():''}
-          ${tenant?`<div class="tenant-row" style="padding:8px 10px;background:var(--primary-light);border-radius:10px;border:none">
-            <div class="avatar" style="width:32px;height:32px;font-size:13px;border-radius:9px">${esc(tenant.name.slice(0,1))}</div>
-            <div class="tenant-info"><div class="n" style="font-size:13px">${esc(tenant.name)} · 月租 ${money(tenant.rent)}</div>
-              <div class="d">${tenant.start||''}${tenant.end?' 至 '+tenant.end:' 起'}</div></div>
-            <button class="btn-text" data-action="editTenant" data-id="${tenant.id}">租约</button>
-          </div>`:`<div style="font-size:12.5px;color:var(--faint);padding:2px 2px">${p.status==='rent'?'（租约已到期或未登记）':'暂无在租租客'}</div>`}
-          <div class="prop-stats">
-            <div><div class="v" style="color:var(--income)">${money(ys.income).replace('¥','¥')}</div><div class="l">${curYear}年收入</div></div>
-            <div><div class="v" style="color:var(--expense)">${money(ys.expense)}</div><div class="l">${curYear}年支出</div></div>
-            <div><div class="v" style="color:${ys.net>=0?'var(--primary-dark)':'var(--expense)'}">${money(ys.net)}</div><div class="l">年净收益</div></div>
-          </div>
-          <div class="prop-actions">
-            <button class="btn btn-ghost btn-sm" style="flex:1" data-action="quickOutFor" data-id="${p.id}">记账</button>
-            <button class="btn btn-ghost btn-sm" style="flex:1" data-action="meter" data-id="${p.id}">抄表</button>
-            <button class="btn btn-ghost btn-sm" style="flex:1" data-action="addTenantFor" data-id="${p.id}">＋租客</button>
-            <button class="btn btn-ghost btn-sm" data-action="editProp" data-id="${p.id}">编辑</button>
-          </div>
-        </div>`}).join('')}
-    </div>`:`<div class="card"><div class="empty"><div class="e-ico">🏗️</div><p>还没有添加房产<br>添加房产后即可按房产分类记账</p>
-      <button class="btn btn-primary" data-action="addProp">＋ 添加第一套房产</button></div></div>
-      <div style="height:20px"></div>`}
-
+    ${uiFold.props?'':(owned.length?`<div class="grid g-3" style="margin-bottom:26px">${owned.map(propCard).join('')}</div>`:emptyProps)}
+    ${rented.length?`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="font-size:15px">🔑 租入房产（${rented.length}）</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" data-action="addProp" data-preset="rent">＋ 添加租入房产</button>
+        <button class="btn btn-ghost btn-sm" data-action="foldRented">${uiFold.rented?'展开 ▾':'收起 ▴'}</button></div></div>
+    ${uiFold.rented?'':`<div class="grid g-3" style="margin-bottom:26px">${rented.map(propCard).join('')}</div>`}`:''}
     <div class="card"><div class="card-h"><h3>📋 全部租约（${db.tenants.length}）</h3>
-      <button class="btn btn-primary btn-sm" data-action="addTenant">＋ 登记租约</button></div>
-      <div style="overflow-x:auto">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" data-action="foldTenants">${uiFold.tenants?'展开 ▾':'收起 ▴'}</button>
+        <button class="btn btn-primary btn-sm" data-action="addTenant">＋ 登记租约</button></div></div>
+      ${uiFold.tenants?'':`<div style="overflow-x:auto">
       <table><thead><tr><th>租客</th><th>承租房产</th><th>月租</th><th>押金</th><th>租期</th><th>收租状态</th><th style="width:110px"></th></tr></thead>
       <tbody>${db.tenants.length?db.tenants.map(t=>{
         const s=tenantStatus(t);const p=db.properties.find(x=>x.id===t.propertyId);
@@ -1187,7 +1216,7 @@ function renderProperties(){
             <button class="btn-text del" data-action="delTenant" data-id="${t.id}">删除</button>
           </td></tr>`}).join(''):
         `<tr><td colspan="7"><div class="empty" style="padding:34px 10px"><div class="e-ico">🧑‍🤝‍🧑</div><p>暂无租约记录</p></div></td></tr>`}
-      </tbody></table></div></div>`;
+      </tbody></table></div>`}</div>`;
 }
 
 /* ================================================================
@@ -1348,10 +1377,11 @@ function renderSettings(){
       8️⃣ 数据仅保存在当前浏览器，清理浏览器缓存会丢失数据，建议定期导出 JSON / Excel 备份；<br>
       9️⃣ 「周期账单」管理每月固定收支，到日自动生成账目；「月度预算」为支出分类设上限，概览页实时预警超支；<br>
       🔟 右上角 🌙 可切换深色模式；「房产租约」页可查看全部抄表历史并删除单条记录；<br>
-      1️⃣1️⃣ 添加房产时性质可选「租入」：填写月租金、合同期、押金与缴租日，系统每月自动记一笔「付房东租金」，房产卡上显示合同剩余天数，临近到期自动变色提醒。
+      1️⃣1️⃣ 添加房产时性质可选「租入」：填写月租金、合同期、押金与缴租日，系统每月自动记一笔「付房东租金」，房产卡上显示合同剩余天数，临近到期自动变色提醒；<br>
+      1️⃣2️⃣ 「我的房产 / 租入房产 / 全部租约」标题旁的「收起 ▴」按钮可折叠对应列表，状态会自动记住；租入的房产单独显示在「🔑 租入房产」区块。
     </div></div>
 
-    <div class="mini-note" style="text-align:center;margin-top:24px">安居记账 v1.3 · 纯本地运行 · 无需联网</div>`;
+    <div class="mini-note" style="text-align:center;margin-top:24px">安居记账 v1.4 · 纯本地运行 · 无需联网</div>`;
 
   document.getElementById('impBtn').onclick=()=>document.getElementById('impFile').click();
   document.getElementById('impFile').onchange=e=>{
@@ -1478,7 +1508,10 @@ document.addEventListener('click',async e=>{
     case'delTx':{const t=db.transactions.find(x=>x.id===id);
       if(t&&await confirmBox(`确认删除这条 ${t.type==='income'?'收入':'支出'}记录（${money(t.amount)}，${t.date}）吗？`)){
         db.transactions=db.transactions.filter(x=>x.id!==id);save();render();toast('已删除','ok')}break;}
-    case'addProp':showPropModal();break;
+    case'addProp':showPropModal(null,btn.dataset.preset||'');break;
+    case'foldProps':toggleFold('props');break;
+    case'foldRented':toggleFold('rented');break;
+    case'foldTenants':toggleFold('tenants');break;
     case'editProp':showPropModal(id);break;
     case'addTenant':showTenantModal();break;
     case'addTenantFor':showTenantModal(null,id);break;
